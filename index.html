@@ -110,17 +110,71 @@
     </table>
   </fieldset>
 
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script>
+    // Firebase config kamu
+    const firebaseConfig = {
+      apiKey: "AIzaSyCH7sE9e5tJrYEz-50OZiOZ3Dz3UcyuiL4",
+      authDomain: "bl-competition.firebaseapp.com",
+      projectId: "bl-competition",
+      storageBucket: "bl-competition.firebasestorage.app",
+      messagingSenderId: "244398245984",
+      appId: "1:244398245984:web:778e5bc4fe7e8959a89b05",
+      measurementId: "G-ZCKQJ970BM"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
     // Daftar nama yang boleh dipilih
     const allowedNames = [
       'Ari','Adolf','Lukas','Dodi',
       'Fahmi','Julian','Mario','Jere'
     ];
 
+    // Variabel utama
     let players = [];
     let playerCount = 0;
     let pointsMap = [];
     let matches = [];
+    let currentlySyncing = false; // Mencegah loop update
+
+    // Simpan semua data ke Firebase (panggil setiap selesai update)
+    function saveToFirebase() {
+      if (currentlySyncing) return; // Cegah double update saat sync
+      db.ref("competition").set({
+        players,
+        playerCount,
+        pointsMap,
+        matches
+      });
+    }
+
+    // Listen perubahan dari Firebase (live sync)
+    db.ref("competition").on("value", (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        currentlySyncing = true;
+        players = data.players || [];
+        playerCount = data.playerCount || 0;
+        pointsMap = data.pointsMap || [];
+        matches = data.matches || [];
+        // Render ulang form sesuai stage
+        if (playerCount === 0) {
+          showStage('stage1');
+        } else if (pointsMap.length === 0) {
+          showStage('stage2');
+          renderScoringForm();
+        } else {
+          showStage('stage3');
+          renderMatchForm();
+        }
+        updateLeaderboard();
+        updateHistory();
+        currentlySyncing = false;
+      }
+    });
 
     // Konfirmasi sebelum reset
     function confirmReset() {
@@ -142,6 +196,7 @@
       document.getElementById('leaderboardBody').innerHTML = '';
       document.getElementById('historyBody').innerHTML = '';
       showStage('stage1');
+      saveToFirebase();
     }
 
     // Stage 1: pilih jumlah & nama dari daftar
@@ -184,8 +239,11 @@
       }
       playerCount = n;
       players = tmp;
+      pointsMap = [];
+      matches = [];
       showStage('stage2');
       renderScoringForm();
+      saveToFirebase();
     }
 
     // Stage 2: atur poin
@@ -199,6 +257,7 @@
       }[playerCount];
       const c = document.getElementById('scoringInputs');
       c.innerHTML = `<h3>${playerCount} Pemain</h3>`;
+      if (!defaultPts) return;
       defaultPts.forEach((pt,i) => {
         c.innerHTML += `
           <label>Poin Rangking ${i+1}:
@@ -218,10 +277,12 @@
         }
         pointsMap.push(v);
       }
+      matches = [];
       showStage('stage3');
       renderMatchForm();
       updateLeaderboard();
       updateHistory();
+      saveToFirebase();
     }
 
     // Stage 3: input match
@@ -256,6 +317,7 @@
       sels.forEach(s => s.value = '');
       updateLeaderboard();
       updateHistory();
+      saveToFirebase();
     }
 
     // Leaderboard
@@ -302,14 +364,13 @@
     function editMatch(index) {
       // ambil dan remove entry
       const ranks = matches.splice(index, 1)[0];
-      // render ulang form input match
       renderMatchForm();
-      // isi kembali pilihan sesuai history
       ranks.forEach((r,i) => {
         document.getElementById(`rank${i}`).value = r == null ? '' : r;
       });
       updateLeaderboard();
       updateHistory();
+      saveToFirebase();
     }
 
     // Utility: tampilkan hanya satu stage
